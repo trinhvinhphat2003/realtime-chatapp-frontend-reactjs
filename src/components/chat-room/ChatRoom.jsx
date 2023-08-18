@@ -12,14 +12,17 @@ const ChatRoom = () => {
         username: '',
         receivername: '',
         connected: false,
-        message: ''
+        message: '',
+        password: ''
     });
+    const autoScrollTopPublic = useRef();
+    const autoScrollTopPrivate = useRef();
     // useEffect(() => {
     //     console.log(userData);
     // }, [userData]);
 
     const connect = () => {
-        let Sock = new SockJS('http://localhost:8080/ws');
+        let Sock = new SockJS('http://192.168.2.8:8080/ws');
         stompClient.current = over(Sock);
         stompClient.current.connect({}, onConnected, onError);
     }
@@ -54,6 +57,14 @@ const ChatRoom = () => {
                     privateChats.set(payloadData.senderName, []);
                     setPrivateChats(new Map(privateChats));
                 }
+                if (payloadData.senderName !== userData.username) {
+                    var chatMessage = {
+                        status: "NOTIFICATION",
+                        receiverName: payloadData.senderName,
+                        senderName: userData.username
+                    };
+                    stompClient.current.send("/app/private-message", {}, JSON.stringify(chatMessage));
+                }
                 break;
             case "MESSAGE":
                 publicChats.push(payloadData);
@@ -62,6 +73,8 @@ const ChatRoom = () => {
             case "LEAVE":
                 publicChats.push(payloadData);
                 setPublicChats([...publicChats]);
+                privateChats.delete(payloadData.senderName);
+                setPrivateChats(new Map(privateChats));
                 break;
         }
     }
@@ -73,10 +86,18 @@ const ChatRoom = () => {
             privateChats.get(payloadData.senderName).push(payloadData);
             setPrivateChats(new Map(privateChats));
         } else {
-            let list = [];
-            list.push(payloadData);
-            privateChats.set(payloadData.senderName, list);
-            setPrivateChats(new Map(privateChats));
+            if (!payloadData.status === "NOTIFICATION") {
+                let list = [];
+                list.push(payloadData);
+                privateChats.set(payloadData.senderName, list);
+                setPrivateChats(new Map(privateChats));
+            } else {
+                if (payloadData.senderName !== userData.username) {
+                    let list = [];
+                    privateChats.set(payloadData.senderName, list);
+                    setPrivateChats(new Map(privateChats));
+                }
+            }
         }
     }
 
@@ -125,6 +146,11 @@ const ChatRoom = () => {
         setUserData({ ...userData, "username": value });
     }
 
+    const handlePassword = (event) => {
+        const { value } = event.target;
+        setUserData({ ...userData, "password": value });
+    }
+
     const registerUser = () => {
         connect();
     }
@@ -138,75 +164,95 @@ const ChatRoom = () => {
     //     await client.send("/app/message", {}, JSON.stringify(chatMessage));
     // }
 
+    // useEffect(() => {
+    //     return async () => {
+    //         console.log("start end ses 1")
+    //         console.log(JSON.stringify(stompClient.current))
+    //         if (stompClient.current) {
+    //             console.log("start end ses 2")
+    //             if (stompClient.current.connected) {
+    //                 console.log("start end ses 3")
+    //                 // await sendDisconnectMessage();
+    //                 stompClient.current.disconnect();
+    //             }
+    //         }
+    //     }
+    // }, [])
+
     useEffect(() => {
-        return async () => {
-            console.log("start end ses 1")
-            console.log(JSON.stringify(stompClient.current))
-            if (stompClient.current) {
-                console.log("start end ses 2")
-                if (stompClient.current.connected) {
-                    console.log("start end ses 3")
-                    // await sendDisconnectMessage();
-                    stompClient.current.disconnect();
-                }
-            }
+        if (autoScrollTopPublic.current) {
+            autoScrollTopPublic.current.scrollTop = autoScrollTopPublic.current.scrollHeight;
         }
-    }, [])
+        if (autoScrollTopPrivate.current) {
+            autoScrollTopPrivate.current.scrollTop = autoScrollTopPrivate.current.scrollHeight;
+        }
+    }, [publicChats, privateChats, tab])
 
     return (
         <div className="container">
             {userData.connected ?
-                <div className="chat-box">
-                    <div className="member-list">
-                        <ul>
-                            <li onClick={() => { setTab("CHATROOM") }} className={`member ${tab === "CHATROOM" && "active"}`}>Chatroom</li>
-                            {[...privateChats.keys()].map((name, index) => (
-                                <li onClick={() => { setTab(name) }} className={`member ${tab === name && "active"}`} key={index}>{name}</li>
-                            ))}
-                        </ul>
+                <div>
+                    <h1 style={{ width: "100%", textAlign: "center" }}>{userData.username}</h1>
+                    <div className="chat-box">
+                        <div className="member-list">
+                            <ul>
+                                <li onClick={() => { setTab("CHATROOM") }} className={`member ${tab === "CHATROOM" && "active"}`}>Chatroom</li>
+                                {[...privateChats.keys()].filter((name) => name !== userData.username).map((name, index) => (
+                                    <li onClick={() => { setTab(name) }} className={`member ${tab === name && "active"}`} key={index}>{name}</li>
+                                ))}
+                            </ul>
+                        </div>
+                        {tab === "CHATROOM" && <div className="chat-content">
+                            <ul className="chat-messages" ref={autoScrollTopPublic}>
+                                {publicChats.map((chat, index) => (
+                                    <li className={`message ${chat.senderName === userData.username && "self"}`} key={index}>
+                                        {chat.senderName !== userData.username && <div className={`avatar ${chat.status === "JOIN" ? "join" : chat.status === "LEAVE" ? "left" : ""}`}>{chat.senderName}</div>}
+                                        <div className="message-data">{chat.message}</div>
+                                        {chat.senderName === userData.username && <div className={`avatar ${chat.status === "JOIN" ? "join" : chat.status === "LEAVE" ? "left" : "self"}`}>{chat.senderName}</div>}
+                                    </li>
+                                ))}
+                            </ul>
+
+                            <div className="send-message">
+                                <input type="text" className="input-message" placeholder="enter the message" value={userData.message} onChange={handleMessage} />
+                                <button type="button" className="send-button" onClick={sendValue}>send</button>
+                            </div>
+                        </div>}
+                        {tab !== "CHATROOM" && <div className="chat-content">
+                            <ul className="chat-messages" ref={autoScrollTopPrivate}>
+                                {[...privateChats.get(tab)].map((chat, index) => (
+                                    <li className={`message ${chat.senderName === userData.username && "self"}`} key={index}>
+                                        {chat.senderName !== userData.username && <div className="avatar">{chat.senderName}</div>}
+                                        <div className="message-data">{chat.message}</div>
+                                        {chat.senderName === userData.username && <div className="avatar self">{chat.senderName}</div>}
+                                    </li>
+                                ))}
+                            </ul>
+
+                            <div className="send-message">
+                                <input type="text" className="input-message" placeholder="enter the message" value={userData.message} onChange={handleMessage} />
+                                <button type="button" className="send-button" onClick={sendPrivateValue}>send</button>
+                            </div>
+                        </div>}
                     </div>
-                    {tab === "CHATROOM" && <div className="chat-content">
-                        <ul className="chat-messages">
-                            {publicChats.map((chat, index) => (
-                                <li className={`message ${chat.senderName === userData.username && "self"}`} key={index}>
-                                    {chat.senderName !== userData.username && <div className={`avatar ${chat.status === "JOIN" ? "join" : chat.status === "LEAVE" ? "left" : ""}`}>{chat.senderName}</div>}
-                                    <div className="message-data">{chat.message}</div>
-                                    {chat.senderName === userData.username && <div className={`avatar ${chat.status === "JOIN" ? "join" : chat.status === "LEAVE" ? "left" : "self"}`}>{chat.senderName}</div>}
-                                </li>
-                            ))}
-                        </ul>
-
-                        <div className="send-message">
-                            <input type="text" className="input-message" placeholder="enter the message" value={userData.message} onChange={handleMessage} />
-                            <button type="button" className="send-button" onClick={sendValue}>send</button>
-                            <button type="button" className="send-button" onClick={() => { stompClient.current.disconnect() }}>disconnect</button>
-                        </div>
-                    </div>}
-                    {tab !== "CHATROOM" && <div className="chat-content">
-                        <ul className="chat-messages">
-                            {[...privateChats.get(tab)].map((chat, index) => (
-                                <li className={`message ${chat.senderName === userData.username && "self"}`} key={index}>
-                                    {chat.senderName !== userData.username && <div className="avatar">{chat.senderName}</div>}
-                                    <div className="message-data">{chat.message}</div>
-                                    {chat.senderName === userData.username && <div className="avatar self">{chat.senderName}</div>}
-                                </li>
-                            ))}
-                        </ul>
-
-                        <div className="send-message">
-                            <input type="text" className="input-message" placeholder="enter the message" value={userData.message} onChange={handleMessage} />
-                            <button type="button" className="send-button" onClick={sendPrivateValue}>send</button>
-                        </div>
-                    </div>}
                 </div>
                 :
                 <div className="register">
+                    <h1 style={{ textAlign: "center" }}>Chat App By Phat</h1>
                     <input
                         id="user-name"
-                        placeholder="Enter your name"
+                        placeholder="Enter your username"
                         name="userName"
                         value={userData.username}
                         onChange={handleUsername}
+                        margin="normal"
+                    />
+                    <input
+                        id="password"
+                        placeholder="Enter your password"
+                        name="password"
+                        value={userData.password}
+                        onChange={handlePassword}
                         margin="normal"
                     />
                     <button type="button" onClick={registerUser}>
